@@ -30,7 +30,7 @@
 (def $frame-rate 60)
 (def $export-path "export/air-liners.obj")
 
-(def al-count 5)
+(def al-count 7)
 (def !air-liners (atom []))
 (def !vc (atom 1)) ; how many vertices we've serialized to the obj file
 (def !should-quit? (atom false))
@@ -42,8 +42,8 @@
 (defn air-liner
   ([]
    (air-liner (rand tau)
-              (let [vel-mag-ceil (/ tau (* 5 $frame-rate))
-                    vel-mag-floor (/ tau (* 15 $frame-rate))]
+              (let [vel-mag-ceil (/ tau (* 4 $frame-rate))
+                    vel-mag-floor (/ tau (* 19 $frame-rate))]
                 (* (rand vel-mag-floor vel-mag-ceil)
                    1 #_(if (zero? (rand-int 2)) -1 1)))
               (rand (/ tau 40) (/ tau 10))))
@@ -59,7 +59,6 @@
 (defn setup []
   (smooth)
   (frame-rate 60)
-  (spit $export-path "")
   (dotimes [_ al-count]
     (swap! !air-liners conj (air-liner))))
 
@@ -68,6 +67,15 @@
           (for [{:keys [pos vel] :as al} @!air-liners]
             (assoc al :pos (+ pos vel)))))
 
+(defn obj-vertex
+  [x y z]
+  (println "v" x y z)
+  (swap! !vc inc))
+
+(defn obj-quad
+  [v0 v1 v2 v3]
+  (println "f" v0 v1 v2 v3))
+
 (defn draw []
   (tick)
   (translate (/ (width) 2) (/ (height) 2))
@@ -75,13 +83,45 @@
   (fill 0)
   (stroke-weight 0)
   (let [frame-obj-lines (atom [])
-        z (-> (frame-count) (* 3) double)
+        base-height 30
+        base-steps (inc 128) ;; n sections means n+1 steps
+        z (-> (frame-count) dec (* 3) (+ base-height) double)
         al-steps 20
-        al-verts (* 2 20)
+        al-verts (* 2 al-steps)
         frame-verts (* al-verts al-count)
         r 150
         w (/ tau 30)
         h 25]
+    (when (= (frame-count) 1)
+      (->>
+        (with-out-str
+          (let [layer-points (* 2 base-steps)]
+            (doseq [z [0 base-height]
+                    [i t] (map vector (range) (step-through 0 tau base-steps))]
+              ;; inner point
+              (let [[x y] (polar->cart r t)]
+                (obj-vertex x (double z) y))
+              ;; outer point
+              (let [[x y] (polar->cart (+ r h) t)]
+                (obj-vertex x (double z) y))
+              (when (> i 0)
+                ;; faces
+                (let [outer-left (- (dec @!vc) 2)]
+                  ;; top/bottom face
+                  (obj-quad outer-left (+ outer-left 2)
+                            (inc outer-left) (dec outer-left))
+                  ;; side faces
+                  (when (= z base-height)
+                    (let [lower-outer-left (- outer-left layer-points)]
+                      ;; outer face
+                      (obj-quad lower-outer-left (+ lower-outer-left 2)
+                                (+ outer-left 2) outer-left)
+                      ;; inner face
+                      (obj-quad (dec outer-left)
+                                (inc outer-left)
+                                (inc lower-outer-left)
+                                (dec lower-outer-left)))))))))
+        (spit $export-path)))
     (doseq [{pos :pos} @!air-liners]
       (begin-shape)
       (let [inner-points (for [t (step-through pos (+ pos w) al-steps)]
@@ -91,12 +131,12 @@
             obj (with-out-str
                   (doseq [[x y] inner-points]
                     (vertex x y)
-                    (swap! !vc inc)
-                    (println "v" x z y))
+                    (println "v" x z y)
+                    (swap! !vc inc))
                   (doseq [[x y] outer-points]
                     (vertex x y)
-                    (swap! !vc inc)
-                    (println "v" x z y))
+                    (println "v" x z y)
+                    (swap! !vc inc))
                   (when (or (= (frame-count) 1)
                             @!should-quit?)
                     (let [a_0 (- @!vc al-verts)
