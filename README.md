@@ -26,6 +26,11 @@ mesh for your model will be put in `export/air-liners.obj`. Note that if you run
 the sketch again, this file WILL BE ERASED. It's up to you to look at each mesh
 and give the file a meaningful name if you want to keep it.
 
+While the Makerbot replicator I'm using to print these doesn't take .obj files,
+the .obj format is a simple format that is widely parseable by 3D editors and
+such. I just load it up in blender, tweak scales a little if I need to, and then
+export to STL and print.
+
 ## License
 
 Copyright © 2012 Dan Lidral-Porter
