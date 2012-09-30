@@ -3,10 +3,10 @@
 "Imagine a human body passing through air, leaving behind it, very briefly,
 a human-shaped tunnel. A hand would make a five-fingered tunnal as it traveled.
 But since the air we move through is a dense mix of particles and creatures --
-dus, spores, bacteria -- as our skin passes through this thick mixture, it
+dust, spores, bacteria -- as our skin passes through this thick mixture, it
 leaves behind a fleeting electrical wake made of charged molecules."
 
-from "Air Liners" by [Sharona Muir][sm], appearing in [Unstuck #1][un].
+   -- from "Air Liners" by [Sharona Muir][sm], appearing in [Unstuck #1][un].
 
 [sm]: http://www.sharonamuir.com/
 [un]: http://www.unstuckbooks.org/issue-1
