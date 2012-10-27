@@ -30,7 +30,7 @@
 (def $frame-rate 60)
 (def $export-path "export/air-liners.obj")
 
-(def al-count 7)
+(def al-count 5)
 (def !air-liners (atom []))
 (def !vc (atom 1)) ; how many vertices we've serialized to the obj file
 (def !should-quit? (atom false))
@@ -50,7 +50,6 @@
   ([pos vel width]
    {:pos pos, :vel vel}))
 
-
 ;;
 ;; Sketch Stuff
 ;; here be the animation thread
@@ -59,6 +58,7 @@
 (defn setup []
   (smooth)
   (frame-rate 60)
+  (spit $export-path "")
   (dotimes [_ al-count]
     (swap! !air-liners conj (air-liner))))
 
@@ -83,16 +83,16 @@
   (fill 0)
   (stroke-weight 0)
   (let [frame-obj-lines (atom [])
-        base-height 30
+        base-height 150
         base-steps (inc 128) ;; n sections means n+1 steps
         z (-> (frame-count) dec (* 3) (+ base-height) double)
-        al-steps 20
+        al-steps 40
         al-verts (* 2 al-steps)
         frame-verts (* al-verts al-count)
         r 150
-        w (/ tau 30)
-        h 25]
-    (when (= (frame-count) 1)
+        w (/ tau 15)
+        h 50]
+    #_(when (= (frame-count) 1)
       (->>
         (with-out-str
           (let [layer-points (* 2 base-steps)]
