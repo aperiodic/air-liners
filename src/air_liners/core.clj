@@ -9,41 +9,49 @@
 
 (def tau 6.2831853071795864)
 (def $frame-rate 60)
-(def $liner-count 1)
+(def $liner-count 7)
 (def $export-path "export/air-liners.obj")
 
 (def $base-steps (inc 128))
 (def $base-height 150)
 (def $z-step 3)
 (def $r 150)
-(def $h 50)
+(def $min-r 20)
+(def $h 17)
 (def $w (/ tau 15))
-(def $liner-steps 40)
-(def $liner-verts (* 2 $liner-steps))
-(def $frame-verts (* $liner-count $liner-verts))
+(def $steps 400)
+(def $length (* $frame-rate 10))
 
 (def !air-liners (atom []))
 (def !z (atom 0)) ; z-position in output object mesh
 (def !vc (atom 1)) ; how many vertices we've serialized to the obj file
 (def !should-quit? (atom false))
 
+(defn age []
+  (- 1 (/ (frame-count) $length)))
+
 ;;
 ;; General Utilities
 ;;
 
 (defn step-through
-  [min max steps]
-  (cond
+  ([min max steps]
+   (step-through min max steps :closed))
+  ([min max steps mode]
+   (cond
     (zero? steps) []
     (= steps 1) [min]
-    :otherwise (let [step (-> (- max min) (/ (dec steps)))]
-                 (concat (for [i (range (dec steps))]
-                           (+ min (* i step)))
-                         [max]))))
+    (= mode :open) (let [step (-> (- max min) (/ steps))]
+                     (for [i (range steps)]
+                       (+ min (* i step))))
+     :otherwise (let [step (-> (- max min) (/ (dec steps)))]
+                  (concat (for [i (range (dec steps))]
+                            (+ min (* i step)))
+                          [max])))))
 
 (defn sin
   [x]
-  (if (= x tau)
+  (if (zero? (mod x tau))
     0.0
     (quil.core/sin x)))
 
@@ -81,57 +89,38 @@
 (defn air-liner
   ([]
    (air-liner (rand tau)
-              (let [vel-mag-ceil (/ tau (* 4 $frame-rate))
+              (let [vel-mag-ceil (/ tau (* 5 $frame-rate))
                     vel-mag-floor (/ tau (* 19 $frame-rate))]
                 (* (rand vel-mag-floor vel-mag-ceil)
                    1 #_(if (zero? (rand-int 2)) -1 1)))))
   ([pos vel]
-   {:pos pos, :vel vel, :width $w}))
+   {:pos pos, :vel vel}))
 
-(defn solid-intervals
+(defn intervals
   [liners]
-  (let [sorted (sort-by :pos (for [liner liners]
-                               (update-in liner [:pos] mod tau)))
-        merged (reduce (fn [intvls {p :pos, w :width}]
-                         (let [v' (+ p w)]
-                           (if-let [[u v c] (last intvls)]
-                             (if (<= p v)
-                               (concat (butlast intvls) [[u v' (inc c)]])
-                               (concat intvls [[p v' 1]]))
-                             ; else (no intervals yet)
-                             [[p v' 1]])))
-                       ()
-                       sorted)
-        modded (for [[u v c] merged] [(mod u tau) (mod v tau) c])
-        [u_n v_n c] (last modded)]
-    (if (< v_n u_n) ; last interval straddles zero, may overlap w/first
-      (let [[u_0 v_0] (first modded)]
-        (if (>= v_n u_0) ; overlap
-          (concat (->> modded butlast (drop 1)) [[u_n v_0 (inc c)]])
-          modded))
-      modded)))
+  (let [sorted (sort (for [{pos :pos} liners] (mod pos tau)))
+        intvls (partition 2 1 (concat sorted (take 1 sorted)))]
+    (->> (sort-by second intvls)
+      (remove (fn [[u v]] (= u v))))))
 
-(defn counts->steps
-  [intervals]
-  (for [[u v c] intervals]
-    [u v (* c $liner-steps)]))
-
-(defn split-straddler
-  [intervals]
-  (let [[u v steps] (last intervals)]
-    (if (> u v) ; straddles zero
-      (let [width (- (+ v tau) u)
-            v-steps (int (* (/ v width) steps))
-            u-steps (- steps v-steps)]
-        (cond
-          (zero? v-steps) (concat (butlast intervals) [[u tau steps]])
-          (zero? u-steps) (concat [[0 v steps]] (butlast intervals))
-          :otherwise
-            (concat [[0 v v-steps true]]
-                    (butlast intervals)
-                    [[u tau u-steps true]])))
-      ; else (does not straddle zero)
-      intervals)))
+(defn radius-fn
+  [liners]
+  (let [intvls (intervals liners)
+        cos-fns (for [[u v] intvls]
+                  (fn [x]
+                    (let [w (if (> u v)
+                              (- (+ v tau) u)
+                              (- v u))
+                          x' (-> (if (and (> u v) (< x u)) (+ x tau) x)
+                               (- u), (/ w), (* tau))]
+                      (-> (cos x')
+                        (- 1), (* $h w)))))
+        sorted-fns (map vector (map second intvls) cos-fns)]
+    (fn [x]
+      (let [cos-fn (-> (filter (fn [[end _]] (> end x)) sorted-fns)
+                     first, second
+                     (or (-> sorted-fns first second)))]
+        (cos-fn x)))))
 
 ;;
 ;; Sketch Stuff
@@ -149,91 +138,41 @@
   (dotimes [_ $liner-count]
     (swap! !air-liners conj (air-liner))))
 
-(defn tick []
+(defn tick! []
   (reset! !air-liners
           (for [{:keys [pos vel] :as al} @!air-liners]
             (assoc al :pos (+ pos vel)))))
 
-(defn solid-ring []
-  (let [layer-points (* 2 $base-steps)
-        curr-z @!z]
-    (doseq [z [curr-z (+ curr-z $base-height)]
-            [i t] (map vector (range) (step-through 0 tau $base-steps))]
-      ;; inner point
-      (let [[x y] (polar->cart $r t)]
-        (obj-vertex x (double z) y))
-      ;; outer point
-      (let [[x y] (polar->cart (+ $r $h) t)]
-        (obj-vertex x (double z) y))
-      (when (> i 0)
-        ;; faces
-        (let [outer-left (- (dec @!vc) 2)]
-          ;; top/bottom face
-          (obj-quad outer-left (+ outer-left 2)
-                    (inc outer-left) (dec outer-left))
-          ;; side faces
-          (when (= z $base-height)
-            (let [lower-outer-left (- outer-left layer-points)]
-              ;; outer face
-              (obj-quad lower-outer-left (+ lower-outer-left 2)
-                        (+ outer-left 2) outer-left)
-              ;; inner face
-              (obj-quad (dec outer-left) (inc outer-left)
-                        (inc lower-outer-left) (dec lower-outer-left))))))))
-    (swap! !z + $base-height))
-
 (defn draw []
-  (tick)
+  (tick!)
   (translate (/ (width) 2) (/ (height) 2))
   (background 255)
   (fill 0)
   (stroke-weight 0)
   (stroke 0 0)
-  (when (= (frame-count) 1)
-    ;; solid ring at base
-    (spit $export-path (with-out-str (solid-ring)) :append true))
+  (begin-shape)
   (let [z (-> @!z double)
-        liner-intervals (-> @!air-liners
-                          solid-intervals counts->steps split-straddler)]
-    (doseq [[u v steps split?] liner-intervals
-            :let [verts (* 2 steps)]]
-      (begin-shape)
-      (let [inner-points (for [t (step-through u v steps)] (polar->cart $r t))
-            outer-points (for [t (-> (step-through u v steps) reverse)]
-                           (polar->cart (+ $r $h) t))
-            obj (with-out-str
-                  (doseq [[x y] (concat inner-points outer-points)]
-                    (vertex x y z))
-                  ;; wall faces
-                  (when (> (frame-count) 1)
-                    (let [a_0 (- @!vc verts)
-                          a_last (dec @!vc)
-                          face-pairs (if-not (and split? (= v tau))
-                                       (partition 2 1 (range a_0 (+ a_0 verts)))
-                                       (concat
-                                         (partition 2 1 (range a_0 (+ a_0 steps)))
-                                         (partition 2 1 (range (+ a_0 steps) (+ a_0 verts)))))]
-                      (when-not (and split? (= u 0))
-                        (obj-quad a_0 a_last (- a_last $frame-verts) (- a_0 $frame-verts)))
-                      (doseq [[a_i a_j] face-pairs]
-                        (obj-quad a_i a_j (- a_j $frame-verts) (- a_i $frame-verts)))))
-                  ;; cap face
-                  (when (or (= (frame-count) 1) @!should-quit?)
-                    (print "f ")
-                    (doseq [a_i (range (- @!vc verts) @!vc)]
-                      (print a_i " "))
-                    (println)))]
-        (spit $export-path obj :append true))
-      (end-shape))
-    (when (some #(> (count %) 3) liner-intervals) ; interval was split
-
-      )
-    )
-  ;(stroke-weight 2)
-  ;(stroke 255 0 0)
-  ;(doseq [[u v] (-> @!air-liners solid-intervals counts->steps split-straddler)]
-  ;  (line (polar->cart $r u) [0 0])
-  ;  (line (polar->cart $r v) [0 0]))
+        rfn (radius-fn @!air-liners)
+        obj (with-out-str
+              (doseq [t (step-through 0 tau $steps)
+                      :let [[x y] (polar->cart (-> (rfn t)
+                                                 (+ $r)
+                                                 (max $min-r))
+                                               t)]]
+                (vertex x y z))
+              (let [frame-verts (range (- @!vc $steps) @!vc)]
+                ;; side faces
+                (doseq [[v_i v_j] (partition 2 1 (concat frame-verts
+                                                         (take 1 frame-verts)))]
+                  (obj-quad v_i v_j (- v_j $steps) (- v_i $steps)))
+                ;; cap face
+                (when (or (= (frame-count) 1) @!should-quit?)
+                  (print "f ")
+                  (doseq [v_i frame-verts]
+                    (print v_i " "))
+                  (println))))]
+    (spit $export-path obj :append true))
+  (end-shape)
   (swap! !z + $z-step)
   (when @!should-quit?
     (exit)))
