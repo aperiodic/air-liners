@@ -9,7 +9,7 @@
 
 (def tau 6.2831853071795864)
 (def $frame-rate 60)
-(def $liner-count 7)
+(def $liner-count 5)
 (def $export-path "export/air-liners.obj")
 
 (def $base-steps (inc 128))
@@ -17,7 +17,7 @@
 (def $z-step 3)
 (def $r 150)
 (def $min-r 20)
-(def $h 17)
+(def $h 18)
 (def $w (/ tau 15))
 (def $steps 400)
 (def $length (* $frame-rate 10))
@@ -151,10 +151,11 @@
   (stroke-weight 0)
   (stroke 0 0)
   (begin-shape)
+  (when (= (frame-count) 2) (reset! !should-quit? true))
   (let [z (-> @!z double)
         rfn (radius-fn @!air-liners)
         obj (with-out-str
-              (doseq [t (step-through 0 tau $steps)
+              (doseq [t (step-through 0 tau $steps :open)
                       :let [[x y] (polar->cart (-> (rfn t)
                                                  (+ $r)
                                                  (max $min-r))
@@ -162,9 +163,11 @@
                 (vertex x y z))
               (let [frame-verts (range (- @!vc $steps) @!vc)]
                 ;; side faces
-                (doseq [[v_i v_j] (partition 2 1 (concat frame-verts
-                                                         (take 1 frame-verts)))]
-                  (obj-quad v_i v_j (- v_j $steps) (- v_i $steps)))
+                (when (> (frame-count) 1)
+                  (doseq [[v_i v_j] (partition 2 1 (concat
+                                                     frame-verts
+                                                     (take 1 frame-verts)))]
+                    (obj-quad v_i v_j (- v_j $steps) (- v_i $steps))))
                 ;; cap face
                 (when (or (= (frame-count) 1) @!should-quit?)
                   (print "f ")
