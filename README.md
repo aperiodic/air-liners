@@ -28,7 +28,7 @@ and give the file a meaningful name if you want to keep it.
 
 While the Makerbot replicator I'm using to print these doesn't take .obj files,
 the .obj format is a simple format that is widely parseable by 3D editors and
-such. I just load it up in blender, tweak scales a little if I need to, and then
+such. I just load it up in blender, tweak the mesh if needed, and then
 export to STL and print.
 
 ## License
