@@ -9,18 +9,18 @@
 
 (def tau 6.2831853071795864)
 (def $frame-rate 60)
-(def $liner-count 4)
+(def $liner-count 3)
 (def $export-path "export/air-liners.obj")
 
 (def $base-steps (inc 128))
 (def $base-height 150)
-(def $z-step 3)
-(def $r 150)
-(def $min-r 20)
-(def $h 18)
+(def $z-step 2)
+(def $r 100)
+(def $min-r 12)
+(def $h 10)
 (def $w (/ tau 15))
-(def $steps 100)
-(def $length (* $frame-rate 3))
+(def $steps 75)
+(def $length (* $frame-rate 5))
 
 (def !air-liners (atom []))
 (def !z (atom 0)) ; z-position in output object mesh
@@ -89,7 +89,7 @@
 (defn air-liner
   ([]
    (air-liner (rand tau)
-              (let [vel-mag-ceil (/ tau (* 5 $frame-rate))
+              (let [vel-mag-ceil (/ tau (* 3 $frame-rate))
                     vel-mag-floor (/ tau (* 19 $frame-rate))]
                 (* (rand vel-mag-floor vel-mag-ceil)
                    1 #_(if (zero? (rand-int 2)) -1 1)))))
