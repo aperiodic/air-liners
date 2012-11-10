@@ -9,7 +9,7 @@
 
 (def tau 6.2831853071795864)
 (def $frame-rate 60)
-(def $liner-count 5)
+(def $liner-count 4)
 (def $export-path "export/air-liners.obj")
 
 (def $base-steps (inc 128))
@@ -19,12 +19,12 @@
 (def $min-r 20)
 (def $h 18)
 (def $w (/ tau 15))
-(def $steps 400)
-(def $length (* $frame-rate 10))
+(def $steps 100)
+(def $length (* $frame-rate 3))
 
 (def !air-liners (atom []))
 (def !z (atom 0)) ; z-position in output object mesh
-(def !vc (atom 1)) ; how many vertices we've serialized to the obj file
+(def !vc (atom 1)) ; index of next vertex to be serialized to obj file
 (def !should-quit? (atom false))
 
 (defn age []
@@ -141,7 +141,9 @@
 (defn tick! []
   (reset! !air-liners
           (for [{:keys [pos vel] :as al} @!air-liners]
-            (assoc al :pos (+ pos vel)))))
+            (assoc al :pos (+ pos vel))))
+  (when (< (age) 0)
+    (reset! !should-quit? true)))
 
 (defn draw []
   (tick!)
@@ -150,32 +152,37 @@
   (fill 0)
   (stroke-weight 0)
   (stroke 0 0)
-  (begin-shape)
-  (when (= (frame-count) 2) (reset! !should-quit? true))
+  (begin-shape :quad-strip)
   (let [z (-> @!z double)
         rfn (radius-fn @!air-liners)
         obj (with-out-str
               (doseq [t (step-through 0 tau $steps :open)
-                      :let [[x y] (polar->cart (-> (rfn t)
-                                                 (+ $r)
-                                                 (max $min-r))
-                                               t)]]
+                      :let [r1 (-> (rfn t) (+ $r) (max $min-r))
+                            r0 (+ r1 $h)]
+                      r [r0 r1]
+                      :let [[x y] (polar->cart r t)]]
                 (vertex x y z))
-              (let [frame-verts (range (- @!vc $steps) @!vc)]
+              (let [n (* 2 $steps)
+                    v_first (- @!vc n) ; first vertex of frame
+                    v_last (+ v_first (- n 2))] ; actually second-to-last
                 ;; side faces
                 (when (> (frame-count) 1)
-                  (doseq [[v_i v_j] (partition 2 1 (concat
-                                                     frame-verts
-                                                     (take 1 frame-verts)))]
-                    (obj-quad v_i v_j (- v_j $steps) (- v_i $steps))))
-                ;; cap face
+                  ;; outer faces
+                  (doseq [v_i (range v_first (+ v_first (- n 2)) 2)]
+                    (obj-quad v_i (+ v_i 2) (- (+ v_i 2) n) (- v_i n)))
+                  (obj-quad v_last v_first (- v_first n) (- v_last n))
+                  ;; inner faces
+                  (doseq [v_i (range (inc v_first) (+ (inc v_first) (- n 2)) 2)]
+                    (obj-quad v_i (+ v_i 2) (- (+ v_i 2) n) (- v_i n)))
+                  (obj-quad (inc v_last) (inc v_first)
+                            (inc (- v_first n)) (inc (- v_last n))))
+                ;; cap faces
                 (when (or (= (frame-count) 1) @!should-quit?)
-                  (print "f ")
-                  (doseq [v_i frame-verts]
-                    (print v_i " "))
-                  (println))))]
+                  (doseq [v_i (range v_first (+ v_first (- n 2)) 2)]
+                    (obj-quad v_i (+ v_i 2) (+ v_i 3) (+ v_i 1)))
+                  (obj-quad v_last v_first (inc v_first) (inc v_last)))))]
     (spit $export-path obj :append true))
-  (end-shape)
+  (end-shape :close)
   (swap! !z + $z-step)
   (when @!should-quit?
     (exit)))
