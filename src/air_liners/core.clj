@@ -1,6 +1,6 @@
 (ns air-liners.core
   (:refer-clojure :exclude [rand])
-  (:use [quil.core :exclude [vertex sin]]))
+  (:use [quil.core :exclude [vertex]]))
   (def % partial)
 
 ;;
@@ -9,7 +9,6 @@
 
 (def tau 6.2831853071795864)
 (def $frame-rate 60)
-(def $liner-count 3)
 (def $export-path "export/air-liners.obj")
 
 (def $base-steps (inc 128))
@@ -22,10 +21,12 @@
 (def $steps 75)
 (def $length (* $frame-rate 5))
 
+(def !liner-count (atom 3))
 (def !air-liners (atom []))
 (def !z (atom 0)) ; z-position in output object mesh
 (def !vc (atom 1)) ; index of next vertex to be serialized to obj file
-(def !should-quit? (atom false))
+(def !recording? (atom false))
+(def !previously-recording? (atom false))
 
 (defn age []
   (- 1 (/ (frame-count) $length)))
@@ -49,12 +50,6 @@
                             (+ min (* i step)))
                           [max])))))
 
-(defn sin
-  [x]
-  (if (zero? (mod x tau))
-    0.0
-    (quil.core/sin x)))
-
 (defn polar->cart
   [r t]
   [(-> (cos t) (* r)), (-> (sin t) (* r))])
@@ -65,8 +60,36 @@
   ([min max] (-> (clojure.core/rand (- max min)) (+ min))))
 
 ;;
-;; Mesh Output
+;; Mesh Output & Recording
 ;;
+
+(defn clear-mesh-file []
+  (spit $export-path ""))
+
+(defn start-recording! []
+  (when-not @!recording?
+    (clear-mesh-file)
+    (reset! !vc 1)
+    (reset! !z 0)
+    (reset! !recording? true)))
+
+(defn stop-recording! []
+  (when @!recording?
+    (reset! !recording? false)))
+
+(defn toggle-recording! []
+  (if @!recording?
+    (stop-recording!)
+    (start-recording!)))
+
+(defn starting-recording? []
+  (and @!recording? (not @!previously-recording?)))
+
+(defn stopping-recording? []
+  (and (not @!recording?) @!previously-recording?))
+
+(defn recording? []
+  (or @!recording? (stopping-recording?)))
 
 (defn obj-vertex
   [x y z]
@@ -80,7 +103,8 @@
 (defn vertex
   [x y z]
   (quil.core/vertex x y)
-  (obj-vertex x z y))
+  (when (recording?)
+    (obj-vertex x z y)))
 
 ;;
 ;; Data Types
@@ -123,32 +147,54 @@
         (cos-fn x)))))
 
 ;;
-;; Sketch Stuff
-;; here be the animation thread
+;; Drawing Things
 ;;
 
-(defn setup []
+(defn draw-liners
+  [liners]
+  )
+
+(defn draw-recording-indicator []
+  (when (recording?)
+    (no-stroke)
+    (fill 255 0 0)
+    (ellipse 30 30 20 20)))
+
+;;
+;; Setup
+;;
+
+(defn sketch-setup []
   (smooth)
-  (frame-rate $frame-rate)
-  (spit $export-path "")
-  (reset! !air-liners [])
+  (frame-rate $frame-rate))
+
+(defn state-setup []
   (reset! !vc 1)
   (reset! !z 0)
-  (reset! !should-quit? false)
-  (dotimes [_ $liner-count]
+  (stop-recording!)
+  (reset! !previously-recording? false)
+  (reset! !air-liners [])
+  (dotimes [_ @!liner-count]
     (swap! !air-liners conj (air-liner))))
+
+(defn setup []
+  (sketch-setup)
+  (state-setup))
+
+;;
+;; Main Loop
+;;
 
 (defn tick! []
   (reset! !air-liners
           (for [{:keys [pos vel] :as al} @!air-liners]
-            (assoc al :pos (+ pos vel))))
-  (when (< (age) 0)
-    (reset! !should-quit? true)))
+            (assoc al :pos (+ pos vel)))))
 
 (defn draw []
   (tick!)
-  (translate (/ (width) 2) (/ (height) 2))
   (background 255)
+  (draw-recording-indicator)
+  (translate (/ (width) 2) (/ (height) 2))
   (fill 0)
   (stroke-weight 0)
   (stroke 0 0)
@@ -162,11 +208,18 @@
                       r [r0 r1]
                       :let [[x y] (polar->cart r t)]]
                 (vertex x y z))
+              ;; close the onscreen shape
+              (let [r1 (-> (rfn 0) (+ $r) (max $min-r))
+                    r0 (+ r1 $h)
+                    [x0 y0] (polar->cart r0 0)
+                    [x1 y1] (polar->cart r1 0)]
+                (quil.core/vertex x0 y0)
+                (quil.core/vertex x1 y1))
               (let [n (* 2 $steps)
                     v_first (- @!vc n) ; first vertex of frame
                     v_last (+ v_first (- n 2))] ; actually second-to-last
                 ;; side faces
-                (when (> (frame-count) 1)
+                (when (and (recording?) (not (starting-recording?)))
                   ;; outer faces
                   (doseq [v_i (range v_first (+ v_first (- n 2)) 2)]
                     (obj-quad v_i (+ v_i 2) (- (+ v_i 2) n) (- v_i n)))
@@ -177,19 +230,28 @@
                   (obj-quad (inc v_last) (inc v_first)
                             (inc (- v_first n)) (inc (- v_last n))))
                 ;; cap faces
-                (when (or (= (frame-count) 1) @!should-quit?)
+                (when (or (starting-recording?) (stopping-recording?))
                   (doseq [v_i (range v_first (+ v_first (- n 2)) 2)]
                     (obj-quad v_i (+ v_i 2) (+ v_i 3) (+ v_i 1)))
                   (obj-quad v_last v_first (inc v_first) (inc v_last)))))]
-    (spit $export-path obj :append true))
+    (when (recording?)
+      (spit $export-path obj :append true)))
   (end-shape :close)
   (swap! !z + $z-step)
-  (when @!should-quit?
-    (exit)))
+  (reset! !previously-recording? @!recording?))
 
 (defn key-pressed []
-  (when (== (key-code) 81)
-    (reset! !should-quit? true)))
+  (condp = (key-code)
+    ;; q
+    81 (toggle-recording!)
+    ;; space
+    32 (state-setup)
+    ;; +
+    57 (swap! !liner-count inc)
+    ;; -
+    222 (swap! !liner-count dec)
+    nil
+    ))
 
 (defn -main
   "I don't do a whole lot."
